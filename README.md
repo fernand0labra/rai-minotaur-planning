@@ -17,8 +17,7 @@ in 2D first, extend to 3D, then visualize the result in Unity.
 **3D: mostly done. A*, RRT, and RRT* work. Hybrid A* does not yet.**
 **Unity: not started. This is the next big piece of work.**
 
-That Hybrid A* gap isn't an oversight, it's explained below, and it's a real
-design task, not a quick fix.
+Didnt have time to get the unity task to work due to accident
 
 ## Setup
 
