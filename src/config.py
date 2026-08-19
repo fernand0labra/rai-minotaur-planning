@@ -41,7 +41,7 @@ class Config:
         return (self.goal_x, self.goal_y, self.goal_z)
 
     planner: str = "astar"
-    map_path: str = "./data/magnetic_sensor.csv"
+    map_path: str = "./data/ore_field_3d.npz"
 
     # -------------------------
     # Start / goal coordinates
@@ -58,17 +58,17 @@ class Config:
     # Cost map
     # -------------------------
 
-    target_susceptibility: float = 0.5
+    target_susceptibility: float = 0.8
 
     w_prospectivity: float = 1.0
-    w_obstacle: float = 1000.0
+    w_obstacle: float = 2.0
     w_uncertainty: float = 0.2
 
     # -------------------------
     # Ore inspection
     # -------------------------
 
-    inspection_max_waypoints: int = 100  # Planning Safety cap
+    inspection_max_waypoints: int = 50  # Planning Safety cap
     inspection_reveal_radius_cells: float = 10.0  # Radius cleared around each visited inspection waypoint
     inspection_distance_weight: float = 1.0
     inspection_preferred_radius_m: float = 50.0
