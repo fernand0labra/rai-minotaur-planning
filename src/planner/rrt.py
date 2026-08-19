@@ -1,7 +1,20 @@
 import numpy as np
 
-from utils.cost_utils import segment_collision_free
 
+def segment_collision_free(env, a, b, n_checks=10):
+    """
+    Collision check for both 2D and 3D.
+    Samples the line between two points.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+
+    for i in range(1, n_checks + 1):
+        t = i / n_checks
+        point = a + t * (b - a)
+        if env.is_obstacle(*point):
+            return False
+    return True
 
 class RRTNode:
     __slots__ = ("state", "parent", "cost")
