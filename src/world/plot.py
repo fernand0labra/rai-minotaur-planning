@@ -37,13 +37,7 @@ class Plotter3D:
             idx = np.argwhere(np.abs(env.susceptibility - level) <= env.boundary_band)
             if len(idx):
                 pts = np.array([env.voxel_to_world(*p) for p in idx[::max(1, len(idx) // 10000)]])
-                ax.scatter(
-                    df["x"],
-                    df["y"],
-                    df["z"],
-                    c=df["susceptibility"],
-                    cmap="viridis",
-                )
+                ax.scatter(*pts.T, s=2, alpha=.25)
             return
 
         verts, faces, _, _ = marching_cubes(env.susceptibility, level=level)
