@@ -41,49 +41,57 @@ class Config:
         return (self.goal_x, self.goal_y, self.goal_z)
 
     planner: str = "astar"
-    map_path: str = "./data/ore_field_3d.npz"
+    map_path: str = "./maps/env3d_smooth.npz"
 
     # -------------------------
     # Start / goal coordinates
     # -------------------------
-    start_x: float = -80.0
-    start_y: float = -80.0
-    start_z: float = 0.0
+    start_x: float = 0.9
+    start_y: float = -0.9
+    start_z: float = -0.9
 
-    goal_x: float = 80.0
-    goal_y: float = 80.0
-    goal_z: float = 0.0
+    goal_x: float = 0.0
+    goal_y: float = 0.0
+    goal_z: float = 0.9
 
     # -------------------------
     # Cost map
     # -------------------------
 
-    target_susceptibility: float = 0.8
+    target_susceptibility: float = 0.5
+    target_gradient: float = 0.8
+    frontier_tolerance: float = 0.05
 
     w_prospectivity: float = 1.0
-    w_obstacle: float = 2.0
+    w_obstacle: float = 1000.0
     w_uncertainty: float = 0.2
 
     # -------------------------
     # Ore inspection
     # -------------------------
 
-    inspection_max_waypoints: int = 50  # Planning Safety cap
-    inspection_reveal_radius_cells: float = 10.0  # Radius cleared around each visited inspection waypoint
+    inspection_max_waypoints: int = 150  # Planning Safety cap
+    inspection_reveal_radius_cells: float = 5.0  # Radius cleared around each visited inspection waypoint
     inspection_distance_weight: float = 1.0
-    inspection_preferred_radius_m: float = 50.0
+    inspection_preferred_radius_m: float = 0.05
+    inspection_max_frontier_distance_m: float = 0.3
+    inspection_max_turn_angle_deg: float = 45.0
+    inspection_entry_distance_m: float = 0.2
+    inspection_heading_weight: float = 0.5
 
     # -------------------------
     # A*
     # -------------------------
 
-    astar_distance_weight: float = 1.0
+    astar_distance_weight: float = 2.0
+    max_turn_angle_deg: float = 10.0
+    astar_motion_radius_cells: int = 6
 
     # -------------------------
     # RRT
     # -------------------------
-    rrt_step: float = 5.0
+    rrt_step: float = 0.05
     rrt_goal_bias: float = 0.1
     rrt_max_iters: int = 20000
-    rrt_star_radius: float = 15.0
+    rrt_star_radius: float = 0.15
     rrt_star_rebuild_interval: int = 25

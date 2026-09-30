@@ -17,7 +17,9 @@ class Environment:
         self.z = data["z"]
 
         # TODO Update from csv
-        self.susceptibility = np.clip(data["field"], 0.0, 1.0)                  # 0.0-1.0 values
+        self.occupancy = np.asarray(data["occupancy"], dtype=np.float32)
+        self.gradient = np.asarray(data["gradient"], dtype=np.float32)
+        self.susceptibility = self.occupancy                                      # 0.0-1.0 values
         self.uncertainty = np.ones_like(self.susceptibility, dtype=np.float32)  # 0,1 values
 
         self.target_susceptibility = target_susceptibility
@@ -88,9 +90,9 @@ class Environment:
     def world_to_voxel(self, *coords):
         x, y, z = coords
 
-        gx = int((x - self.xmin) / self.resolution_x)
-        gy = int((y - self.ymin) / self.resolution_y)
-        gz = int((z - self.zmin) / self.resolution_z)
+        gx = int(np.rint((x - self.xmin) / self.resolution_x))
+        gy = int(np.rint((y - self.ymin) / self.resolution_y))
+        gz = int(np.rint((z - self.zmin) / self.resolution_z))
 
         gx = max(0, min(self.nx - 1, gx))
         gy = max(0, min(self.ny - 1, gy))
@@ -120,53 +122,120 @@ class Environment:
         return float(self.uncertainty[gx, gy, gz])
 
     """
-    Scans the field for ore-boundary candidates; cells within target_boundary of target_susceptibility that are not obstacles. 
-    Score is uncertainty minus distance-from-target-ore (information gain minus travel cost).
+    Scans the field for gradient-boundary candidates; free cells directly outside the target gradient contour. 
+    Score is uncertainty minus distance-from-target-gradient (information gain minus travel cost).
 
-    Returns (score, point, uncertainty) for the single most interesting remaining ore-boundary location, or None if nothing qualifies.
+    Returns the single most interesting remaining ore-boundary location, or None if nothing qualifies.
     """
-    def get_frontier(self, cfg, robot_world):
-
-        # Calculate frontier radius
-        radius = int(cfg.inspection_preferred_radius_m / min(self.resolution_x, self.resolution_y, self.resolution_z))
-
-        # Convert robot world position to grid position
-        gx, gy, gz = self.world_to_voxel(*robot_world)
-
-        # Define local region around robot
-        x0 = max(0, gx - radius)
-        x1 = min(self.nx, gx + radius + 1)
-
-        y0 = max(0, gy - radius)
-        y1 = min(self.ny, gy + radius + 1)
-
-        z0 = max(0, gz - radius)
-        z1 = min(self.nz, gz + radius + 1)
-
-        # Select ore field section for frontier discovery 
-        susceptibility = self.susceptibility[x0:x1, y0:y1, z0:z1]
-        uncertainty = self.uncertainty[x0:x1, y0:y1, z0:z1]
+    def get_frontier(self, cfg, robot_world, arrival_direction=None):
 
         # Identify indexes that are not obstacles and uncertain of their magnetic susceptibility
-        frontier_voxel = np.argwhere((uncertainty == 1) & (susceptibility <= cfg.target_susceptibility))
-        if len(frontier_voxel) == 0:  return []
+        cache_key = (cfg.target_susceptibility, cfg.target_gradient)
+        if getattr(self, "_frontier_cache_key", None) != cache_key:
+            self._frontier_cache_key = cache_key
+            occupied = self.occupancy >= cfg.target_susceptibility
+            tracked = self.gradient >= cfg.target_gradient
+            adjacent = np.zeros_like(tracked)
+            adjacent[1:, :, :] |= tracked[:-1, :, :]
+            adjacent[:-1, :, :] |= tracked[1:, :, :]
+            adjacent[:, 1:, :] |= tracked[:, :-1, :]
+            adjacent[:, :-1, :] |= tracked[:, 1:, :]
+            adjacent[:, :, 1:] |= tracked[:, :, :-1]
+            adjacent[:, :, :-1] |= tracked[:, :, 1:]
+            self._frontier_voxel = np.argwhere((~occupied) & (~tracked) & adjacent)
+
+        frontier_voxel = self._frontier_voxel
+        frontier_voxel = frontier_voxel[self.uncertainty[tuple(frontier_voxel.T)] > 0]
+        if len(frontier_voxel) == 0:  return None
 
         # Add information gain to planning score
-        scores = uncertainty[tuple(frontier_voxel.T)] - np.abs(susceptibility[tuple(frontier_voxel.T)] - cfg.target_susceptibility)
+        tracking_gradient = self.gradient[tuple(frontier_voxel.T)]
+        uncertainty = self.uncertainty[tuple(frontier_voxel.T)]
+        scores = uncertainty - np.abs(tracking_gradient - cfg.target_gradient)
 
-        candidates_voxel = frontier_voxel + np.array([x0, y0, z0])  # Map local indices back to full resolution grid indices
-        frontier_world = [self.voxel_to_world(*row) for row in candidates_voxel]  
+        frontier_world = np.empty_like(frontier_voxel, dtype=float)
+        frontier_world[:, 0] = self.xmin + frontier_voxel[:, 0] * self.resolution_x
+        frontier_world[:, 1] = self.ymin + frontier_voxel[:, 1] * self.resolution_y
+        frontier_world[:, 2] = self.zmin + frontier_voxel[:, 2] * self.resolution_z
 
-        # Compute distances between robot position and identified local frontiers
-        dists = np.linalg.norm(np.array(frontier_world, dtype=float) - np.array(robot_world, dtype=float), axis=1)
+        # Compute distances between robot position and identified frontiers
+        dists = np.linalg.norm(frontier_world - np.array(robot_world, dtype=float), axis=1)
 
-        # Add travel costs to planning score (nearby candidates)
+        # Do not jump to a separate gradient island after the initial approach
+        if arrival_direction is not None:
+            local = dists <= cfg.inspection_max_frontier_distance_m
+            frontier_voxel = frontier_voxel[local]
+            frontier_world = frontier_world[local]
+            scores = scores[local]
+            dists = dists[local]
+            if len(frontier_voxel) == 0:  return None
+
+        # Add travel costs to planning score (nearby surface-following candidates)
         scores = scores - cfg.inspection_distance_weight * (dists / cfg.inspection_preferred_radius_m)
+        if arrival_direction is not None:
+            arrival_direction = np.asarray(arrival_direction, dtype=float)
+            arrival_norm = np.linalg.norm(arrival_direction)
+            candidate_directions = frontier_world - np.asarray(robot_world, dtype=float)
+            candidate_norms = np.linalg.norm(candidate_directions, axis=1)
+            valid = candidate_norms > 1e-12
+            heading_alignment = np.zeros_like(scores)
+            heading_alignment[valid] = np.sum(candidate_directions[valid] * arrival_direction, axis=1) / (candidate_norms[valid] * arrival_norm)
+            within_turn = valid & (heading_alignment >= np.cos(np.radians(cfg.inspection_max_turn_angle_deg)))
+            frontier_voxel = frontier_voxel[within_turn]
+            frontier_world = frontier_world[within_turn]
+            scores = scores[within_turn]
+            dists = dists[within_turn]
+            heading_alignment = heading_alignment[within_turn]
+            if len(frontier_voxel) == 0:  return None
+            scores = scores + cfg.inspection_heading_weight * heading_alignment
 
         # Choose high score frontier candidate
-        order = np.argsort(-scores)
-        candidates_world = [frontier_world[k] for k in order]
-        return None if not candidates_world else candidates_world[0]
+        for index in np.argsort(-scores):
+            if self.line_is_free(robot_world, frontier_voxel[index]):  return tuple(frontier_world[index])
+        return tuple(frontier_world[int(np.argmin(dists))])
+
+    def get_entry_frontier(self, cfg, robot_world):
+        self.get_frontier(cfg, robot_world)
+        frontier_voxel = self._frontier_voxel
+        frontier_voxel = frontier_voxel[self.uncertainty[tuple(frontier_voxel.T)] > 0]
+        if len(frontier_voxel) < 2:  return None
+
+        frontier_world = np.empty_like(frontier_voxel, dtype=float)
+        frontier_world[:, 0] = self.xmin + frontier_voxel[:, 0] * self.resolution_x
+        frontier_world[:, 1] = self.ymin + frontier_voxel[:, 1] * self.resolution_y
+        frontier_world[:, 2] = self.zmin + frontier_voxel[:, 2] * self.resolution_z
+        start_distances = np.linalg.norm(frontier_world - np.asarray(robot_world, dtype=float), axis=1)
+
+        for entry_index in np.argsort(start_distances)[:512]:
+            directions = frontier_world - frontier_world[entry_index]
+            distances = np.linalg.norm(directions, axis=1)
+            local = (distances > cfg.inspection_reveal_radius_cells * min(self.resolution_x, self.resolution_y, self.resolution_z)) & (distances <= cfg.inspection_max_frontier_distance_m)
+            next_indices = np.flatnonzero(local)
+            next_indices = next_indices[np.argsort(np.abs(distances[next_indices] - cfg.inspection_preferred_radius_m))]
+
+            for next_index in next_indices[:64]:
+                tracking_direction = directions[next_index] / distances[next_index]
+                staging_world = frontier_world[entry_index] - cfg.inspection_entry_distance_m * tracking_direction
+                if not (self.xmin <= staging_world[0] <= self.xmax and self.ymin <= staging_world[1] <= self.ymax and self.zmin <= staging_world[2] <= self.zmax):  continue
+                staging_voxel = self.world_to_voxel(*staging_world)
+                staging_world = np.asarray(self.voxel_to_world(*staging_voxel))
+                arrival_direction = frontier_world[entry_index] - staging_world
+                cosine = np.dot(arrival_direction, directions[next_index]) / (np.linalg.norm(arrival_direction) * distances[next_index])
+                if cosine < np.cos(np.radians(cfg.inspection_max_turn_angle_deg)):  continue
+                if self.occupancy[staging_voxel] >= self.target_susceptibility:  continue
+                if not self.line_is_free(staging_world, frontier_voxel[entry_index]):  continue
+                return tuple(staging_world), tuple(frontier_world[entry_index])
+        return None
+
+    def line_is_free(self, start, goal_voxel):
+        start_voxel = np.rint((np.asarray(start) - np.array([self.xmin, self.ymin, self.zmin])) / np.array([self.resolution_x, self.resolution_y, self.resolution_z])).astype(int)
+        delta = np.asarray(goal_voxel) - start_voxel
+        samples = max(2, int(np.max(np.abs(delta))) * 2 + 1)
+        line = np.rint(np.linspace(start_voxel, goal_voxel, samples)).astype(int)
+        line[:, 0] = np.clip(line[:, 0], 0, self.nx - 1)
+        line[:, 1] = np.clip(line[:, 1], 0, self.ny - 1)
+        line[:, 2] = np.clip(line[:, 2], 0, self.nz - 1)
+        return bool(np.all(self.occupancy[line[:, 0], line[:, 1], line[:, 2]] < self.target_susceptibility))
 
     def get_neighbors(self, *idx):
         neighbors = []
@@ -183,9 +252,8 @@ class Environment:
                     nz = gz + dz
 
                     if (0 <= nx < self.nx and 0 <= ny < self.ny and 0 <= nz < self.nz):
-                        p = self.voxel_to_world(nx, ny, nz)
-                        if not self.is_obstacle(*p):
-                                neighbors.append((nx, ny, nz))
+                        if self.occupancy[nx, ny, nz] < self.target_susceptibility:
+                            neighbors.append((nx, ny, nz))
 
         return neighbors
 
@@ -194,14 +262,21 @@ class Environment:
     # ----------------------------------------------------
 
     def is_obstacle(self, *coords):
-        return self.get_susceptibility(*coords) > self.target_susceptibility
+        gx, gy, gz = self.world_to_voxel(*coords)
+        return self.occupancy[gx, gy, gz] >= self.target_susceptibility
 
     def cost(self, *coords):
-        susceptibility = self.get_susceptibility(*coords)
+        gx, gy, gz = self.world_to_voxel(*coords)
+        susceptibility = float(self.occupancy[gx, gy, gz])
         uncertainty = self.get_uncertainty(*coords)
 
-        if susceptibility > self.target_susceptibility:  # Avoid drilling ore
+        if susceptibility >= self.target_susceptibility:  # Avoid drilling ore
             return self.w_obstacle
         else:
-            return self.w_prospectivity * ((susceptibility - self.target_susceptibility) ** 2) + \
+            return self.w_prospectivity * float(self.gradient[gx, gy, gz]) + \
                    self.w_uncertainty * uncertainty
+
+    def cost_voxel(self, *idx):
+        gx, gy, gz = idx
+        if self.occupancy[gx, gy, gz] >= self.target_susceptibility:  return self.w_obstacle
+        return self.w_prospectivity * float(self.gradient[gx, gy, gz]) + self.w_uncertainty * float(self.uncertainty[gx, gy, gz])

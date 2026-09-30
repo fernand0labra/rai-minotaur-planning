@@ -1,60 +1,49 @@
+import argparse
+import os
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Line3DCollection
+import plotly.graph_objects as go
 
-try:
-    from skimage.measure import marching_cubes
-except ImportError:
-    marching_cubes = None
+###
 
+def add_path(fig, path):
+    progress = np.linspace(0.0, 1.0, len(path))
+    fig.add_trace(go.Scatter3d(x=path[:, 0], y=path[:, 1], z=path[:, 2], mode="lines", line=dict(color=progress, colorscale="Plasma", width=6, colorbar=dict(title="Path progress", tickvals=[0, 1], ticktext=["start", "end"])), name="Inspection route"))
+    fig.add_trace(go.Scatter3d(x=[path[0, 0]], y=[path[0, 1]], z=[path[0, 2]], mode="markers", marker=dict(size=7, color="cyan", line=dict(color="black", width=1)), name="Start"))
+    fig.add_trace(go.Scatter3d(x=[path[-1, 0]], y=[path[-1, 1]], z=[path[-1, 2]], mode="markers", marker=dict(size=7, color="magenta", line=dict(color="black", width=1)), name="Goal"))
 
-class Plotter3D:
-    def __init__(self, env):
-        self.env = env
+def add_backtracking(fig, backtracks):
+    if len(backtracks) == 0:  return
+    fig.add_trace(go.Scatter3d(x=backtracks[:, 0], y=backtracks[:, 1], z=backtracks[:, 2], mode="markers", marker=dict(size=5, color="red", symbol="diamond", line=dict(color="black", width=1)), name="Backtrack and resume"))
 
-    def draw(self, path=None, start=None, goal=None, title="Planned Inspection Route"):
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(projection="3d")
+def plot_field(X, Y, Z, values, path, backtracks, title, output, isomin, isomax, surface_count, opacity, colorscale):
+    fig = go.Figure(go.Isosurface(x=X.ravel(), y=Y.ravel(), z=Z.ravel(), value=values.ravel(), isomin=isomin, isomax=isomax, surface_count=surface_count, opacity=opacity, colorscale=colorscale, caps=dict(x_show=False, y_show=False, z_show=False)))
+    add_path(fig, path)
+    add_backtracking(fig, backtracks)
+    fig.update_layout(title=title, scene=dict(aspectmode="cube", xaxis_title="x", yaxis_title="y", zaxis_title="z"))
+    fig.write_html(output, auto_open=False)
 
-        self._ore(ax)
-        if path is not None and len(path):
-            self._path(fig, ax, path)
-        if start is not None:
-            ax.scatter(*start, s=80, label="start")
-        if goal is not None:
-            ax.scatter(*goal, s=80, label="goal")
+def plot():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--map", default="./maps/env3d_smooth.npz")
+    parser.add_argument("--path", default="./maps/planned_path.csv")
+    parser.add_argument("--backtracks", default="./maps/backtrack_points.csv")
+    parser.add_argument("--stride", type=int, default=2)
+    args = parser.parse_args()
 
-        ax.set(xlabel="X", ylabel="Y", zlabel="Z", title=title)
-        ax.legend()
-        fig.tight_layout()
-        plt.show()
+    data = np.load(args.map)
+    stride = max(1, args.stride)
+    X = data["X"][::stride, ::stride, ::stride]
+    Y = data["Y"][::stride, ::stride, ::stride]
+    Z = data["Z"][::stride, ::stride, ::stride]
+    occupancy = data["occupancy"][::stride, ::stride, ::stride]
+    gradient = data["gradient"][::stride, ::stride, ::stride]
+    path = np.atleast_2d(np.loadtxt(args.path, delimiter=",", skiprows=1))
+    backtracks = np.atleast_2d(np.loadtxt(args.backtracks, delimiter=",", skiprows=1)) if os.path.exists(args.backtracks) and os.path.getsize(args.backtracks) > 6 else np.empty((0, 3))
 
-    def _ore(self, ax):
-        env = self.env
-        level = env.target_susceptibility
+    plot_field(X, Y, Z, occupancy, path, backtracks, "Occupancy and planned path", "occupancy_path.html", 0.5, 0.5, 1, 0.45, "Viridis")
+    plot_field(X, Y, Z, gradient, path, backtracks, "Gradient and planned path", "gradient_path.html", 0.1, 0.9, 5, 0.18, "Plasma")
 
-        if marching_cubes is None:
-            idx = np.argwhere(np.abs(env.susceptibility - level) <= env.boundary_band)
-            if len(idx):
-                pts = np.array([env.voxel_to_world(*p) for p in idx[::max(1, len(idx) // 10000)]])
-                ax.scatter(*pts.T, s=2, alpha=.25)
-            return
+###
 
-        verts, faces, _, _ = marching_cubes(env.susceptibility, level=level)
-        verts[:, 0] = env.xmin + verts[:, 0] * env.resolution_x
-        verts[:, 1] = env.ymin + verts[:, 1] * env.resolution_y
-        verts[:, 2] = env.zmin + verts[:, 2] * env.resolution_z
-        ax.plot_trisurf(*verts.T, triangles=faces, alpha=.25, linewidth=0)
-
-    @staticmethod
-    def _path(fig, ax, path):
-        p = np.asarray(path, dtype=float)
-        if len(p) == 1:
-            ax.scatter(*p[0], s=40)
-            return
-
-        segments = np.stack((p[:-1], p[1:]), axis=1)
-        line = Line3DCollection(segments, cmap="plasma", linewidth=3)
-        line.set_array(np.linspace(0, 1, len(segments)))
-        ax.add_collection3d(line)
-        fig.colorbar(line, ax=ax, shrink=.6, pad=.1, label="path progress")
+if __name__ == "__main__":
+    plot()
