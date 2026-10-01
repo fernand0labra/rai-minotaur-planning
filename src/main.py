@@ -6,6 +6,7 @@ import numpy as np
 
 from config import parse_config
 from world.env import Environment
+from env3d_voxel_texture import patch_core_textures
 
 # Keep the supplied kinematics and geometric controller unchanged. They may
 # live in this folder or one level above it.
@@ -110,6 +111,7 @@ def main(argv=None):
 
     path, susceptibility_log, gradient_log = [position.copy()], [], []
     desired_log, heading_log, q_log = [], [], []
+    core_starts, core_ends, core_textures = [], [], []
     for step in range(cfg.max_steps):
         env.robot_step(*position, radius_m=cfg.reveal_radius_m)
         distance_to_goal = np.linalg.norm(goal-position)
@@ -187,6 +189,11 @@ def main(argv=None):
         desired_log.append(desired)
         heading_log.append(heading)
         q_log.append(q.copy())
+        if np.linalg.norm(next_position-position) > cfg.gradient_epsilon:
+            local_gradient = env.sample_core_gradient(position, next_position, cfg.borehole_radius_m)
+            core_starts.append(position.copy())
+            core_ends.append(next_position.copy())
+            core_textures.append(np.asarray(patch_core_textures(local_gradient, seed=111+step)))
         position = next_position
         path.append(position.copy())
 
@@ -208,12 +215,17 @@ def main(argv=None):
         start_collar=start_collar, goal_collar=goal_collar,
         target_susceptibility=cfg.target_susceptibility,
         step_length_m=cfg.step_length_m, reveal_radius_m=cfg.reveal_radius_m,
+        core_starts=np.asarray(core_starts), core_ends=np.asarray(core_ends),
+        core_textures=np.asarray(core_textures, dtype=np.uint8), core_radius_m=cfg.borehole_radius_m,
     )
     print(f"Navigation finished after {len(path)-1} step(s); final distance: "
           f"{np.linalg.norm(goal-position):.3f} m")
     if cfg.create_plot:
         from world.plot import plot
-        plot(cfg.map_path, cfg.output_path, cfg.html_path)
+        plot(cfg.map_path, cfg.output_path, cfg.html_path,
+             show_gradient=cfg.show_gradient, show_core_cylinders=cfg.show_core_cylinders,
+             show_core_textures_2d=cfg.show_core_textures_2d,
+             core_radius_scale=cfg.core_plot_radius_scale)
     return np.asarray(path)
 
 

@@ -81,6 +81,25 @@ class Environment:
                                 float(self.susceptibility[tuple(lo)])) / span
         return result
 
+    def sample_core_gradient(self, start, end, radius_m, axial_samples=12, radial_samples=16):
+        """Sample the surrounding ore field around one forward core segment."""
+        start, end = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+        axis = end-start
+        length = np.linalg.norm(axis)
+        if length <= 1e-12:
+            return np.empty((0, radial_samples), dtype=np.float32)
+        axis /= length
+        helper = np.array([0.0, 0.0, 1.0]) if abs(axis[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        u = np.cross(axis, helper)
+        u /= np.linalg.norm(u)
+        v = np.cross(axis, u)
+        values = np.empty((axial_samples, radial_samples), dtype=np.float32)
+        for i, center in enumerate(np.linspace(start, end, axial_samples)):
+            for j, angle in enumerate(np.linspace(0.0, 2*np.pi, radial_samples, endpoint=False)):
+                point = self.clip_to_bounds(center+radius_m*(np.cos(angle)*u+np.sin(angle)*v))
+                values[i, j] = self.gradient[self.world_to_voxel(*point)]
+        return values
+
     def in_bounds(self, point):
         x, y, z = point
         return (self.xmin <= x <= self.xmax and self.ymin <= y <= self.ymax and

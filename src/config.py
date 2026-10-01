@@ -31,6 +31,10 @@ class Config:
     output_path: str = "./maps/magnetic_navigation_run.npz"
     html_path: str = "magnetic_borehole_navigation.html"
     create_plot: bool = True
+    show_gradient: bool = True
+    show_core_cylinders: bool = True
+    show_core_textures_2d: bool = True
+    core_plot_radius_scale: float = 0.5
 
     # Existing scenario endpoints: the underground ends of borehole 1 and 2.
     start_x: float =  0.75
