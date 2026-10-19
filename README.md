@@ -14,14 +14,13 @@ The planning is defined in the _planner.py_ file through the class __Planner__. 
 "max_steps": 100
 ```
 
+The _plot.py_ file generates a plot for the visualization of the start/goal boreholes, navigated path, drill core textures, ore-body gradient and steer/track directions.
+
+
 ```
 src/planner.py          # High-Level Planning
 src/plot.py             # Component Plotting
-```
 
-The _plot.py_ file generates a plot for the visualization of the start/goal boreholes, navigated path, drill core textures, ore-body gradient and steer/track directions.
-
-```
 data/planner.html       # Navigation
 ```
 
