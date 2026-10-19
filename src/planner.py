@@ -61,8 +61,6 @@ class Planner:
 
         self.geo.update((gx, gy, gz), (x0, y0, z0), (x1, y1, z1), self.env.gradient)
 
-        self.log_uncertainty.append(self.geo.uncertainty.astype(np.float32).copy())
-        self.log_estimated.append(self.geo.estimated.astype(np.float32).copy())
 
 
     def plan(self, start, goal):
@@ -144,6 +142,8 @@ class Planner:
             position = next_position
 
             self.log_path.append(position.copy())
+            self.log_uncertainty.append(self.geo.uncertainty.astype(np.float32).copy())
+            self.log_estimated.append(self.geo.estimated.astype(np.float32).copy())
 
             base_rotation = self.rotation_from_x(heading)
             q[:] = 0.0
