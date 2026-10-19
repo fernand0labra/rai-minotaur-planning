@@ -1,6 +1,6 @@
 # MINOTAUR Project - Planning Module
 
-This repository includes the code for orchestrating the __Controller__, __Tracker__, __Environment__, __Core__ and __Geomodel__ classes to navigate a simulated robotic platform between start and goal borehole positions.
+This repository includes the code for orchestrating the control, state and environment modules to navigate a simulated robotic platform between start and goal borehole positions.
 
 ## Long Horizon Planner System (T4.1)
 
@@ -14,31 +14,19 @@ The planning is defined in the _planner.py_ file through the class __Planner__. 
 "max_steps": 100
 ```
 
-The _plot.py_ file generates a plot for the visualization of the start/goal boreholes, navigated path, drill core textures, ore-body gradient and steer/track directions.
-
 ```
-# ******************** #
-#  Executable Scripts  #
-# ******************** #
-
 src/planner.py          # High-Level Planning
 src/plot.py             # Component Plotting
 ```
 
-```
-# ******************** #
-#    Generated Plots   #
-# ******************** #
+The _plot.py_ file generates a plot for the visualization of the start/goal boreholes, navigated path, drill core textures, ore-body gradient and steer/track directions.
 
+```
 data/planner.html       # Navigation
 ```
 
 The script saves the simulation run data to _planner.npz_, necessary for the interactive visualization provided by the supervision module.
 
 ```
-# ******************** #
-#    Planning Data     #
-# ******************** #
-
 data/planner.npz        # Run Data
 ```
